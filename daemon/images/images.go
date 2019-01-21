@@ -143,7 +143,17 @@ func (i *ImageService) Images(imageFilters filters.Args, all bool, withExtraAttr
 
 		newImage := newImage(img, size)
 
+		tagMatched := make(map[string]bool)
+
 		for _, ref := range i.referenceStore.References(id.Digest()) {
+			familiarName := reference.FamiliarName(ref)
+			_, isCanonicalRef := ref.(reference.Canonical)
+
+			if isCanonicalRef && tagMatched[familiarName] {
+				newImage.RepoDigests = append(newImage.RepoDigests, reference.FamiliarString(ref))
+				continue
+			}
+
 			if imageFilters.Contains("reference") {
 				var found bool
 				var matchErr error
@@ -160,10 +170,11 @@ func (i *ImageService) Images(imageFilters filters.Args, all bool, withExtraAttr
 					continue
 				}
 			}
-			if _, ok := ref.(reference.Canonical); ok {
+			if isCanonicalRef {
 				newImage.RepoDigests = append(newImage.RepoDigests, reference.FamiliarString(ref))
 			}
 			if _, ok := ref.(reference.NamedTagged); ok {
+				tagMatched[familiarName] = true
 				newImage.RepoTags = append(newImage.RepoTags, reference.FamiliarString(ref))
 			}
 		}
