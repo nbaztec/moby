@@ -90,6 +90,7 @@ func (i *ImageService) Images(imageFilters filters.Args, all bool, withExtraAttr
 	var allLayers map[layer.ChainID]layer.Layer
 	var allContainers []*container.Container
 
+	//fmt.Println("------------------")
 	for id, img := range allImages {
 		if beforeFilter != nil {
 			if img.Created.Equal(beforeFilter.Created) || img.Created.After(beforeFilter.Created) {
@@ -143,16 +144,36 @@ func (i *ImageService) Images(imageFilters filters.Args, all bool, withExtraAttr
 
 		newImage := newImage(img, size)
 
+		repoTag := ""
+		repoDigest := ""
+		idFilterMatched := false
+		//fmt.Printf("---> %v\n", id.String())
 		for _, ref := range i.referenceStore.References(id.Digest()) {
+			//familiarName := reference.FamiliarName(ref)
+
+			//fmt.Printf("> check %s %s \n", reference.FamiliarString(ref), familiarName)
+
+			_, isCanonical := ref.(reference.Canonical)
+			_, isNamedTagged := ref.(reference.NamedTagged)
+
+			if isCanonical {
+				repoDigest = reference.FamiliarString(ref)
+			}
+			if isNamedTagged {
+				repoTag = reference.FamiliarString(ref)
+			}
+
 			if imageFilters.Contains("reference") {
 				var found bool
 				var matchErr error
 				for _, pattern := range imageFilters.Get("reference") {
 					found, matchErr = reference.FamiliarMatch(pattern, ref)
+					//fmt.Printf("? %s : %v, %v => %v : %v \n", pattern, reference.FamiliarString(ref), reference.FamiliarName(ref), found, matchErr)
 					if matchErr != nil {
 						return nil, matchErr
 					}
 					if found {
+						idFilterMatched = true
 						break
 					}
 				}
@@ -160,13 +181,33 @@ func (i *ImageService) Images(imageFilters filters.Args, all bool, withExtraAttr
 					continue
 				}
 			}
-			if _, ok := ref.(reference.Canonical); ok {
-				newImage.RepoDigests = append(newImage.RepoDigests, reference.FamiliarString(ref))
+
+
+			if isCanonical {
+				//fmt.Printf("append digest %v \n", reference.FamiliarString(ref))
+				newImage.RepoDigests = append(newImage.RepoDigests, repoDigest)
 			}
-			if _, ok := ref.(reference.NamedTagged); ok {
-				newImage.RepoTags = append(newImage.RepoTags, reference.FamiliarString(ref))
+			if isNamedTagged {
+				//fmt.Printf("append tag %v \n", reference.FamiliarString(ref))
+				newImage.RepoTags = append(newImage.RepoTags, repoTag)
 			}
 		}
+
+		// no need to enter this block if no filter was specified, since everything is added to the list either way
+		if idFilterMatched {
+			//fmt.Printf("filter matched! %v , %v\n", len(newImage.RepoDigests), len(newImage.RepoTags))
+			if len(newImage.RepoDigests) == 0 && repoDigest != "" {
+				//fmt.Printf("+digest %v \n", repoDigest)
+				newImage.RepoDigests = append(newImage.RepoDigests, repoDigest)
+			}
+
+			if len(newImage.RepoTags) == 0 && repoTag != "" {
+				//fmt.Printf("+tag %v \n", repoTag)
+				newImage.RepoTags = append(newImage.RepoTags, repoTag)
+			}
+		}
+
+
 		if newImage.RepoDigests == nil && newImage.RepoTags == nil {
 			if all || len(i.imageStore.Children(id)) == 0 {
 
